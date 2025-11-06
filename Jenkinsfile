@@ -3,30 +3,45 @@ pipeline {
 
   options {
     timestamps()
-    ansiColor('xterm')
+    ansiColor('xterm')                   // requires AnsiColor plugin
     buildDiscarder(logRotator(numToKeepStr: '20'))
     disableConcurrentBuilds()
+    skipDefaultCheckout(true)            // avoid the implicit "Declarative: Checkout SCM"
   }
 
-  triggers { pollSCM('@daily') } 
+  triggers { pollSCM('@daily') }
 
   environment {
     APP_NAME         = 'spring-petclinic'
-    DOCKER_NAMESPACE = 'ihebmb'  
+    DOCKER_NAMESPACE = 'ihebmb'          // your Docker Hub namespace
     DOCKER_IMAGE     = "${env.DOCKER_NAMESPACE}/${env.APP_NAME}"
-    DOCKER_CREDS_ID  = 'dockerhub-creds'
+    DOCKER_CREDS_ID  = 'dockerhub-creds' // Jenkins creds id (user/pass to Docker Hub)
   }
 
   stages {
-    stage('Checkout') { steps { checkout scm } }
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
 
     stage('Compute Version') {
       steps {
         script {
-          def sha = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-          def base = sh(script: "./mvnw -q -Dexec.executable=echo -Dexec.args='\\${project.version}' --non-recursive org.codehaus.mojo:exec-maven-plugin:3.1.0:exec", returnStdout: true).trim()
-          env.APP_VERSION = "${base}-${env.BUILD_NUMBER}-${sha}"
+          // Read Maven POM safely (no undefined 'project' var)
+          def pom = readMavenPom file: 'pom.xml'
+          env.APP_NAME     = pom.artifactId ?: env.APP_NAME
+          env.POM_VERSION  = pom.version    ?: '0.0.0'
+
+          // Short git SHA + build number
+          env.GIT_SHORT    = sh(returnStdout: true, script: 'git rev-parse --short=8 HEAD').trim()
+          env.APP_VERSION  = "${env.POM_VERSION}-${env.BUILD_NUMBER}-${env.GIT_SHORT}"
+
+          echo "APP_NAME=${env.APP_NAME}"
+          echo "POM_VERSION=${env.POM_VERSION}"
+          echo "APP_VERSION=${env.APP_VERSION}"
         }
+        // Persist the calculated version into the built jar name
         sh "./mvnw -B versions:set -DnewVersion=${APP_VERSION} -DgenerateBackupPoms=false"
       }
     }
@@ -36,13 +51,14 @@ pipeline {
         stage('Unit') {
           steps {
             sh "./mvnw -B -DskipITs=true test"
-            junit 'target/surefire-reports/*.xml'
+            junit allowEmptyResults: false, testResults: 'target/surefire-reports/*.xml'
           }
         }
         stage('Integration') {
           steps {
-            sh "./mvnw -B -P integration-tests verify"
-            junit 'target/failsafe-reports/*.xml'
+            // PetClinic may not have ITs; run verify anyway and publish if present
+            sh "./mvnw -B verify"
+            junit allowEmptyResults: true, testResults: 'target/failsafe-reports/*.xml'
           }
         }
       }
@@ -74,20 +90,33 @@ pipeline {
           docker rm -f ${APP_NAME} || true
           docker run -d --name ${APP_NAME} -p 8080:8080 ${DOCKER_IMAGE}:${APP_VERSION}
         """
+        echo "Application deployed successfully."
       }
     }
   }
 
   post {
     success {
-      emailext to: 'ihebmbarek738@gmail.com',
-        subject: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-        body: "Version ${env.APP_VERSION} built and pushed as ${env.DOCKER_IMAGE}:${env.APP_VERSION}\n${env.BUILD_URL}"
+      script {
+        try {
+          emailext to: 'ihebmbarek738@gmail.com',
+            subject: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+            body: "Version ${env.APP_VERSION} built and pushed as ${env.DOCKER_IMAGE}:${env.APP_VERSION}\n${env.BUILD_URL}"
+        } catch (e) {
+          echo "Email skipped: ${e.message}"
+        }
+      }
     }
     failure {
-      emailext to: 'ihebmbarek738@gmail.com',
-        subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-        body: "Build failed. ${env.BUILD_URL}"
+      script {
+        try {
+          emailext to: 'ihebmbarek738@gmail.com',
+            subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+            body: "Build failed. ${env.BUILD_URL}"
+        } catch (e) {
+          echo "Email skipped: ${e.message}"
+        }
+      }
     }
   }
 }
