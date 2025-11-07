@@ -8,8 +8,8 @@ pipeline {
   }
 
   environment {
-    GIT_URL   = 'https://github.com/ihebmbarek1/spring-petclinic'
-    JAVA_HOME = '/var/jenkins_home/.sdkman/candidates/java/current'
+    GIT_URL = 'https://github.com/ihebmbarek1/spring-petclinic'
+    // don't set JAVA_HOME here; we’ll set it explicitly inside each sh block
   }
 
   stages {
@@ -21,9 +21,9 @@ pipeline {
         ])
         script {
           env.GIT_COMMIT_SHORT = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
-          env.BUILD_VERSION    = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
-          env.DOCKER_IMAGE     = "spring-petclinic"
-          env.DOCKER_TAG       = env.BUILD_VERSION
+          env.BUILD_VERSION = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
+          env.DOCKER_IMAGE  = "spring-petclinic"
+          env.DOCKER_TAG    = env.BUILD_VERSION
           echo "Commit=${env.GIT_COMMIT_SHORT}  BUILD_VERSION=${env.BUILD_VERSION}"
         }
       }
@@ -32,7 +32,21 @@ pipeline {
     stage('Build') {
       steps {
         sh '''
-          export PATH="${JAVA_HOME}/bin:${PATH}"
+          set -e
+
+          # Ensure SDKMAN + Temurin 25 exist (idempotent)
+          if [ ! -d "$HOME/.sdkman" ]; then
+            curl -s "https://get.sdkman.io" | bash
+          fi
+          . "$HOME/.sdkman/bin/sdkman-init.sh"
+          if [ ! -x "$HOME/.sdkman/candidates/java/25.0.1-tem/bin/java" ]; then
+            sdk install java 25.0.1-tem
+          fi
+
+          export JAVA_HOME="$HOME/.sdkman/candidates/java/25.0.1-tem"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
+
           chmod +x mvnw || true
           ./mvnw -B -U -DskipTests=true clean package
         '''
@@ -46,9 +60,16 @@ pipeline {
       parallel {
         stage('Unit Tests') {
           steps {
-            // Exclude PostgresIntegrationTests and skip docker-compose in tests
             sh '''
-              export PATH="${JAVA_HOME}/bin:${PATH}"
+              set -e
+              . "$HOME/.sdkman/bin/sdkman-init.sh" || true
+              if [ ! -x "$HOME/.sdkman/candidates/java/25.0.1-tem/bin/java" ]; then
+                sdk install java 25.0.1-tem
+              fi
+              export JAVA_HOME="$HOME/.sdkman/candidates/java/25.0.1-tem"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              java -version
+
               ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
                      -Dtest=\\!PostgresIntegrationTests \
                      test
@@ -60,9 +81,16 @@ pipeline {
         }
         stage('Integration Tests (MySQL only)') {
           steps {
-            // Run only the MySQL ITs; also skip docker-compose
             sh '''
-              export PATH="${JAVA_HOME}/bin:${PATH}"
+              set -e
+              . "$HOME/.sdkman/bin/sdkman-init.sh" || true
+              if [ ! -x "$HOME/.sdkman/candidates/java/25.0.1-tem/bin/java" ]; then
+                sdk install java 25.0.1-tem
+              fi
+              export JAVA_HOME="$HOME/.sdkman/candidates/java/25.0.1-tem"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              java -version
+
               ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
                      -Dtest=org.springframework.samples.petclinic.MySqlIntegrationTests \
                      verify
@@ -97,7 +125,6 @@ pipeline {
         sh '''
           docker network inspect petnet >/dev/null 2>&1 || docker network create petnet
           docker rm -f petclinic-${BUILD_NUMBER} >/dev/null 2>&1 || true
-          # host 8082 (busy 8080), container 8080
           docker run -d --name petclinic-${BUILD_NUMBER} --network petnet -p 8082:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
           echo "Application deployed successfully."
         '''
@@ -110,4 +137,4 @@ pipeline {
     failure { echo "❌ Build failed" }
     always  { archiveArtifacts artifacts: 'target/*.jar, image.txt', fingerprint: true, onlyIfSuccessful: false }
   }
-  }
+}
