@@ -1,4 +1,4 @@
-pipeline { 
+pipeline {
   agent any
   options { timestamps(); ansiColor('xterm') }
 
@@ -9,7 +9,7 @@ pipeline {
 
   environment {
     GIT_URL   = 'https://github.com/ihebmbarek1/spring-petclinic'
-    // We'll set JAVA_HOME dynamically after installing Java 25 via SDKMAN
+    JAVA_HOME = '/var/jenkins_home/.sdkman/candidates/java/current'
   }
 
   stages {
@@ -32,19 +32,7 @@ pipeline {
     stage('Build') {
       steps {
         sh '''
-          set -e
-          # Install SDKMAN + Temurin 25 only if not already present
-          if [ ! -d "$HOME/.sdkman" ]; then
-            curl -s "https://get.sdkman.io" | bash
-          fi
-          . "$HOME/.sdkman/bin/sdkman-init.sh"
-          if ! sdk ls java | grep -q "25.*tem"; then
-            sdk install java 25-tem
-          fi
-          sdk use java 25-tem
-          export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
-          export PATH="$JAVA_HOME/bin:$PATH"
-
+          export PATH="${JAVA_HOME}/bin:${PATH}"
           chmod +x mvnw || true
           ./mvnw -B -U -DskipTests=true clean package
         '''
@@ -58,13 +46,9 @@ pipeline {
       parallel {
         stage('Unit Tests') {
           steps {
+            // Exclude PostgresIntegrationTests and skip docker-compose in tests
             sh '''
-              set -e
-              . "$HOME/.sdkman/bin/sdkman-init.sh"
-              sdk use java 25-tem
-              export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
-              export PATH="$JAVA_HOME/bin:$PATH"
-
+              export PATH="${JAVA_HOME}/bin:${PATH}"
               ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
                      -Dtest=\\!PostgresIntegrationTests \
                      test
@@ -76,13 +60,9 @@ pipeline {
         }
         stage('Integration Tests (MySQL only)') {
           steps {
+            // Run only the MySQL ITs; also skip docker-compose
             sh '''
-              set -e
-              . "$HOME/.sdkman/bin/sdkman-init.sh"
-              sdk use java 25-tem
-              export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
-              export PATH="$JAVA_HOME/bin:$PATH"
-
+              export PATH="${JAVA_HOME}/bin:${PATH}"
               ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
                      -Dtest=org.springframework.samples.petclinic.MySqlIntegrationTests \
                      verify
@@ -130,4 +110,4 @@ pipeline {
     failure { echo "❌ Build failed" }
     always  { archiveArtifacts artifacts: 'target/*.jar, image.txt', fingerprint: true, onlyIfSuccessful: false }
   }
-}
+  }
