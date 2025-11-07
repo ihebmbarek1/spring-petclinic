@@ -9,7 +9,7 @@ pipeline {
 
   environment {
     GIT_URL = 'https://github.com/ihebmbarek1/spring-petclinic'
-    // don't set JAVA_HOME here; we’ll set it explicitly inside each sh block
+    // Do NOT set JAVA_HOME globally; we set it inside each step.
   }
 
   stages {
@@ -21,9 +21,9 @@ pipeline {
         ])
         script {
           env.GIT_COMMIT_SHORT = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
-          env.BUILD_VERSION = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
-          env.DOCKER_IMAGE  = "spring-petclinic"
-          env.DOCKER_TAG    = env.BUILD_VERSION
+          env.BUILD_VERSION    = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
+          env.DOCKER_IMAGE     = "spring-petclinic"
+          env.DOCKER_TAG       = env.BUILD_VERSION
           echo "Commit=${env.GIT_COMMIT_SHORT}  BUILD_VERSION=${env.BUILD_VERSION}"
         }
       }
@@ -31,14 +31,13 @@ pipeline {
 
     stage('Build') {
       steps {
-        sh '''
+        sh(script: '''
           set -e
-
-          # Ensure SDKMAN + Temurin 25 exist (idempotent)
+          # Ensure SDKMAN and Temurin 25 are available (idempotent)
           if [ ! -d "$HOME/.sdkman" ]; then
             curl -s "https://get.sdkman.io" | bash
           fi
-          . "$HOME/.sdkman/bin/sdkman-init.sh"
+          source "$HOME/.sdkman/bin/sdkman-init.sh"
           if [ ! -x "$HOME/.sdkman/candidates/java/25.0.1-tem/bin/java" ]; then
             sdk install java 25.0.1-tem
           fi
@@ -49,7 +48,7 @@ pipeline {
 
           chmod +x mvnw || true
           ./mvnw -B -U -DskipTests=true clean package
-        '''
+        ''', shell: '/bin/bash')
       }
       post {
         always { archiveArtifacts artifacts: 'target/*.jar', fingerprint: true, onlyIfSuccessful: false }
@@ -60,12 +59,13 @@ pipeline {
       parallel {
         stage('Unit Tests') {
           steps {
-            sh '''
+            sh(script: '''
               set -e
-              . "$HOME/.sdkman/bin/sdkman-init.sh" || true
+              source "$HOME/.sdkman/bin/sdkman-init.sh" || true
               if [ ! -x "$HOME/.sdkman/candidates/java/25.0.1-tem/bin/java" ]; then
                 sdk install java 25.0.1-tem
               fi
+
               export JAVA_HOME="$HOME/.sdkman/candidates/java/25.0.1-tem"
               export PATH="$JAVA_HOME/bin:$PATH"
               java -version
@@ -73,7 +73,7 @@ pipeline {
               ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
                      -Dtest=\\!PostgresIntegrationTests \
                      test
-            '''
+            ''', shell: '/bin/bash')
           }
           post {
             always { junit testResults: 'target/**/TEST-*.xml', allowEmptyResults: false }
@@ -81,12 +81,13 @@ pipeline {
         }
         stage('Integration Tests (MySQL only)') {
           steps {
-            sh '''
+            sh(script: '''
               set -e
-              . "$HOME/.sdkman/bin/sdkman-init.sh" || true
+              source "$HOME/.sdkman/bin/sdkman-init.sh" || true
               if [ ! -x "$HOME/.sdkman/candidates/java/25.0.1-tem/bin/java" ]; then
                 sdk install java 25.0.1-tem
               fi
+
               export JAVA_HOME="$HOME/.sdkman/candidates/java/25.0.1-tem"
               export PATH="$JAVA_HOME/bin:$PATH"
               java -version
@@ -94,7 +95,7 @@ pipeline {
               ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
                      -Dtest=org.springframework.samples.petclinic.MySqlIntegrationTests \
                      verify
-            '''
+            ''', shell: '/bin/bash')
           }
           post {
             always { junit testResults: 'target/**/TEST-*.xml', allowEmptyResults: true }
@@ -105,16 +106,16 @@ pipeline {
 
     stage('Docker Image Build') {
       steps {
-        sh '''
+        sh(script: '''
           docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
           docker images | head -n 5
-        '''
+        ''', shell: '/bin/bash')
       }
     }
 
     stage('Artifact Archiving') {
       steps {
-        sh 'echo "image=${DOCKER_IMAGE}:${DOCKER_TAG}" > image.txt'
+        sh(script: 'echo "image=${DOCKER_IMAGE}:${DOCKER_TAG}" > image.txt', shell: '/bin/bash')
         archiveArtifacts artifacts: 'image.txt', fingerprint: true
       }
     }
@@ -122,12 +123,12 @@ pipeline {
     stage('Deployment (staging only)') {
       when { expression { params.DEPLOY_ENV == 'staging' && !env.CHANGE_ID } }
       steps {
-        sh '''
+        sh(script: '''
           docker network inspect petnet >/dev/null 2>&1 || docker network create petnet
           docker rm -f petclinic-${BUILD_NUMBER} >/dev/null 2>&1 || true
           docker run -d --name petclinic-${BUILD_NUMBER} --network petnet -p 8082:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
           echo "Application deployed successfully."
-        '''
+        ''', shell: '/bin/bash')
       }
     }
   }
