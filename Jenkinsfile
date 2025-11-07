@@ -9,7 +9,7 @@ pipeline {
 
   environment {
     GIT_URL   = 'https://github.com/ihebmbarek1/spring-petclinic'
-    JAVA_HOME = '/var/jenkins_home/.sdkman/candidates/java/current'
+    JAVA_HOME = '/opt/java/openjdk'   // <- fix: valid JDK path on Jenkins
   }
 
   stages {
@@ -32,6 +32,7 @@ pipeline {
     stage('Build') {
       steps {
         sh '''
+          export JAVA_HOME="${JAVA_HOME}"
           export PATH="${JAVA_HOME}/bin:${PATH}"
           chmod +x mvnw || true
           ./mvnw -B -U -DskipTests=true clean package
@@ -46,8 +47,8 @@ pipeline {
       parallel {
         stage('Unit Tests') {
           steps {
-            // Exclude PostgresIntegrationTests and skip docker-compose in tests
             sh '''
+              export JAVA_HOME="${JAVA_HOME}"
               export PATH="${JAVA_HOME}/bin:${PATH}"
               ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
                      -Dtest=\\!PostgresIntegrationTests \
@@ -60,8 +61,8 @@ pipeline {
         }
         stage('Integration Tests (MySQL only)') {
           steps {
-            // Run only the MySQL ITs; also skip docker-compose
             sh '''
+              export JAVA_HOME="${JAVA_HOME}"
               export PATH="${JAVA_HOME}/bin:${PATH}"
               ./mvnw -B -Dspring.docker.compose.skip.in-tests=true \
                      -Dtest=org.springframework.samples.petclinic.MySqlIntegrationTests \
@@ -97,7 +98,6 @@ pipeline {
         sh '''
           docker network inspect petnet >/dev/null 2>&1 || docker network create petnet
           docker rm -f petclinic-${BUILD_NUMBER} >/dev/null 2>&1 || true
-          # host 8082 (busy 8080), container 8080
           docker run -d --name petclinic-${BUILD_NUMBER} --network petnet -p 8082:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
           echo "Application deployed successfully."
         '''
