@@ -1,4 +1,4 @@
-pipeline {
+pipeline { 
   agent any
   options { timestamps(); ansiColor('xterm') }
 
@@ -37,7 +37,7 @@ pipeline {
           if [ ! -d "$HOME/.sdkman" ]; then
             curl -s "https://get.sdkman.io" | bash
           fi
-          source "$HOME/.sdkman/bin/sdkman-init.sh"
+          . "$HOME/.sdkman/bin/sdkman-init.sh"
           if ! sdk ls java | grep -q "25.*tem"; then
             sdk install java 25-tem
           fi
@@ -60,7 +60,7 @@ pipeline {
           steps {
             sh '''
               set -e
-              source "$HOME/.sdkman/bin/sdkman-init.sh"
+              . "$HOME/.sdkman/bin/sdkman-init.sh"
               sdk use java 25-tem
               export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
               export PATH="$JAVA_HOME/bin:$PATH"
@@ -78,7 +78,7 @@ pipeline {
           steps {
             sh '''
               set -e
-              source "$HOME/.sdkman/bin/sdkman-init.sh"
+              . "$HOME/.sdkman/bin/sdkman-init.sh"
               sdk use java 25-tem
               export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
               export PATH="$JAVA_HOME/bin:$PATH"
