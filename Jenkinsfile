@@ -30,20 +30,22 @@ pipeline {
 
     stage('Build') {
       steps {
-        sh '''#!/bin/bash -leo pipefail
-          set -e
-          # Ensure SDKMAN and Java 25
-          if [ ! -d "$HOME/.sdkman" ]; then
-            curl -s "https://get.sdkman.io" | bash
-          fi
-          source "$HOME/.sdkman/bin/sdkman-init.sh"
-          sdk install java 25-tem || true
-          sdk use java 25-tem
-          export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
-          export PATH="$JAVA_HOME/bin:$PATH"
+        sh '''
+          bash -lc '
+            set -e
+            # Ensure SDKMAN and Java 25
+            if [ ! -d "$HOME/.sdkman" ]; then
+              curl -s "https://get.sdkman.io" | bash
+            fi
+            . "$HOME/.sdkman/bin/sdkman-init.sh"
+            sdk install java 25-tem || true
+            sdk use java 25-tem
+            export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
+            export PATH="$JAVA_HOME/bin:$PATH"
 
-          chmod +x mvnw || true
-          ./mvnw -B -U -DskipTests=true -Dcheckstyle.skip=true clean package
+            chmod +x mvnw || true
+            ./mvnw -B -U -DskipTests=true -Dcheckstyle.skip=true clean package
+          '
         '''
       }
       post {
@@ -55,17 +57,19 @@ pipeline {
       parallel {
         stage('Unit Tests') {
           steps {
-            sh '''#!/bin/bash -leo pipefail
-              set -e
-              source "$HOME/.sdkman/bin/sdkman-init.sh"
-              sdk use java 25-tem
-              export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
-              export PATH="$JAVA_HOME/bin:$PATH"
+            sh '''
+              bash -lc '
+                set -e
+                . "$HOME/.sdkman/bin/sdkman-init.sh"
+                sdk use java 25-tem
+                export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
+                export PATH="$JAVA_HOME/bin:$PATH"
 
-              ./mvnw -B -Dcheckstyle.skip=true \
-                     -Dspring.docker.compose.skip.in-tests=true \
-                     -Dtest=\\!PostgresIntegrationTests \
-                     test
+                ./mvnw -B -Dcheckstyle.skip=true \
+                       -Dspring.docker.compose.skip.in-tests=true \
+                       -Dtest=\\!PostgresIntegrationTests \
+                       test
+              '
             '''
           }
           post {
@@ -74,17 +78,19 @@ pipeline {
         }
         stage('Integration Tests (MySQL only)') {
           steps {
-            sh '''#!/bin/bash -leo pipefail
-              set -e
-              source "$HOME/.sdkman/bin/sdkman-init.sh"
-              sdk use java 25-tem
-              export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
-              export PATH="$JAVA_HOME/bin:$PATH"
+            sh '''
+              bash -lc '
+                set -e
+                . "$HOME/.sdkman/bin/sdkman-init.sh"
+                sdk use java 25-tem
+                export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
+                export PATH="$JAVA_HOME/bin:$PATH"
 
-              ./mvnw -B -Dcheckstyle.skip=true \
-                     -Dspring.docker.compose.skip.in-tests=true \
-                     -Dtest=org.springframework.samples.petclinic.MySqlIntegrationTests \
-                     verify
+                ./mvnw -B -Dcheckstyle.skip=true \
+                       -Dspring.docker.compose.skip.in-tests=true \
+                       -Dtest=org.springframework.samples.petclinic.MySqlIntegrationTests \
+                       verify
+              '
             '''
           }
           post {
@@ -124,8 +130,8 @@ pipeline {
   }
 
   post {
-    success { echo "${env.JOB_NAME} #${env.BUILD_NUMBER}  ${env.DOCKER_IMAGE}:${env.DOCKER_TAG}" }
-    failure { echo " Build failed" }
+    success { echo "✅ ${env.JOB_NAME} #${env.BUILD_NUMBER}  ${env.DOCKER_IMAGE}:${env.DOCKER_TAG}" }
+    failure { echo "❌ Build failed" }
     always  { archiveArtifacts artifacts: 'target/*.jar, image.txt', fingerprint: true, onlyIfSuccessful: false }
   }
 }
